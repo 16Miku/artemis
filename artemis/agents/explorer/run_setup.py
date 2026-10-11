@@ -34,7 +34,6 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from artemis.agents.explorer.constants import (
-    DEFAULT_EXPLORER_MODEL,
     EXECUTION_CONSTRAINT_TEMPLATE,
 )
 from artemis.agents.explorer.geometry import resolve_screen_size
@@ -220,24 +219,29 @@ class RunSetupMixin:
     def _resolve_model_params(self) -> tuple:
         """Resolves model name, temperature, thinking level, and fallback model."""
         llm_config = getattr(self.ctx, "llm_config", None)
+        if llm_config is None:
+            from artemis.config.llm import get_default_llm_config
+
+            llm_config = get_default_llm_config()
         llm_cfg = getattr(llm_config, "explorer", None) if llm_config else None
+        if llm_cfg is None and hasattr(llm_config, "get_agent"):
+            llm_cfg = llm_config.get_agent("explorer")
+        if llm_cfg is None:
+            raise ValueError("Explorer LLM configuration is unavailable.")
         temperature = 0.1
         fallback_model = None
         thinking_level = None
-        if llm_cfg:
-            model_name = llm_cfg.model
-            if "/" in model_name:
-                model_name = model_name.split("/")[-1]
-            if getattr(llm_cfg, "temperature", None) is not None:
-                temperature = llm_cfg.temperature
-            if getattr(llm_cfg, "thinking_level", None) is not None:
-                thinking_level = llm_cfg.thinking_level
-            if getattr(llm_cfg, "fallback", None):
-                fallback_model = llm_cfg.fallback.model
-                if "/" in fallback_model:
-                    fallback_model = fallback_model.split("/")[-1]
-        else:
-            model_name = DEFAULT_EXPLORER_MODEL
+        model_name = llm_cfg.model
+        if "/" in model_name:
+            model_name = model_name.split("/")[-1]
+        if getattr(llm_cfg, "temperature", None) is not None:
+            temperature = llm_cfg.temperature
+        if getattr(llm_cfg, "thinking_level", None) is not None:
+            thinking_level = llm_cfg.thinking_level
+        if getattr(llm_cfg, "fallback", None):
+            fallback_model = llm_cfg.fallback.model
+            if "/" in fallback_model:
+                fallback_model = fallback_model.split("/")[-1]
 
         return model_name, temperature, thinking_level, fallback_model
 

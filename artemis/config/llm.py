@@ -116,21 +116,6 @@ class LLMWithFallback(LLM):
         return f"{self.provider}/{self.model} (fallback: {self.fallback})"
 
 
-def lightweight_judge_default() -> "LLMWithFallback":
-    """Factory default for the lightweight judge nodes (pixel safety net and
-    planner validation): a flash-lite model at temperature 0."""
-    return LLMWithFallback(
-        provider="google",
-        model="gemini-3.5-flash-lite",
-        temperature=0.0,
-        fallback=LLM(
-            provider="google",
-            model="gemini-3.1-flash-lite",
-            temperature=0.0,
-        ),
-    )
-
-
 class LLMConfigUtils(BaseModel):
     """Configuration container for auxiliary utility agents/nodes."""
 
@@ -209,10 +194,9 @@ class LLMConfig(BaseModel):
             if item == "history_analyzer":
                 return self.operator
             elif item in ("validator_pixel_safety_net", "planner_validation"):
-                # Both are cheap, high-frequency judges: the pixel safety net
-                # runs before actions, the planner validator after every
-                # milestone edit. They share one lightweight default.
-                return lightweight_judge_default()
+                # Only reached when a config was already expanded without judge
+                # nodes; _expand_default_into_nodes normally fills them in.
+                return self.operator.model_copy(update={"temperature": 0.0})
             elif item == "output_analyzer":
                 return self.log_analyzer
         return val
@@ -291,6 +275,22 @@ def _expand_default_into_nodes(config_dict: dict) -> dict:
                     util_cfg[k] = v
         utils_dict[util] = util_cfg
     result["utils"] = utils_dict
+
+    # Judge nodes follow the configured default model at temperature 0.
+    # Explicit entries under "nodes" still override them.
+    judge_nodes = ["validator_pixel_safety_net", "planner_validation"]
+    for judge in judge_nodes:
+        judge_cfg = dict(default_model_cfg, temperature=0.0)
+        fallback_cfg = default_model_cfg.get("fallback")
+        if isinstance(fallback_cfg, dict):
+            judge_cfg["fallback"] = {**fallback_cfg, "temperature": 0.0}
+        if judge in nodes_override:
+            for k, v in nodes_override[judge].items():
+                if isinstance(v, dict) and isinstance(judge_cfg.get(k), dict):
+                    judge_cfg[k] = {**judge_cfg[k], **v}
+                else:
+                    judge_cfg[k] = v
+        result[judge] = judge_cfg
 
     return result
 

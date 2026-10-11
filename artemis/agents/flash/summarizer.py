@@ -163,13 +163,13 @@ class VisualStepSummarizer(StepMemoryService):
 
         # Use the configured summarizer provider so OpenAI-compatible gateways
         # and other non-Google providers keep their base URL and credentials.
-        target_model = model_name or "gemini-2.5-flash-lite"
+        target_model = model_name
         self._model_name = target_model
         try:
             self._llm = get_llm(
                 ctx,
                 name="summarizer",
-                model_name=target_model if model_name else None,
+                model_name=target_model,
                 temperature=0.0,
             )
         except Exception:
@@ -355,7 +355,7 @@ class VisualStepSummarizer(StepMemoryService):
         record_llm_usage(
             engine,
             response,
-            source=f"lens:visual_transition:{self._model_name}",
+            source=f"lens:visual_transition:{self._model_name or 'default'}",
             update_last_prompt=False,
         )
 

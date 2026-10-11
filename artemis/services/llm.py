@@ -1061,8 +1061,12 @@ def _resolve_endpoint(
         val = getattr(obj, attr, None)
         return val if isinstance(val, expected_type) else None
 
-    provider_val = getattr(cfg, "provider", "google")
-    model_val = getattr(cfg, "model", "gemini-2.5-flash")
+    provider_val = getattr(cfg, "provider", None)
+    model_val = getattr(cfg, "model", None)
+    if not isinstance(provider_val, str) or not provider_val.strip():
+        raise ValueError(f"LLM configuration for '{name}' has no valid provider.")
+    if not isinstance(model_val, str) or not model_val.strip():
+        raise ValueError(f"LLM configuration for '{name}' has no valid model.")
 
     return ModelEndpoint(
         provider=ModelProvider.from_string(provider_val),

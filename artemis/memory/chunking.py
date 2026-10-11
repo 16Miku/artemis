@@ -45,7 +45,6 @@ from uuid import uuid4
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from artemis.llm.google import is_google_provider
 from artemis.memory.step_memory import JobKey, StepLens, StepMemoryService
 from artemis.memory.transcript import format_session_offset
 from artemis.utils.logger import get_logger
@@ -298,7 +297,7 @@ class StepCapsuleLens(StepLens):
         fallback_model_name: str | None = None,
         fallback_llm: Any | None = None,
     ):
-        self._model_name = model_name or "gemini-3.8-flash"
+        self._model_name = model_name
         self._llm = llm
         self._ctx = ctx
         # Availability hardening: `chunking.model` is a dedicated model with no
@@ -351,7 +350,7 @@ class StepCapsuleLens(StepLens):
         return self._fallback_llm is not None or bool(self._fallback_model_name)
 
     @property
-    def model_name(self) -> str:
+    def model_name(self) -> str | None:
         return self._model_name
 
     def build_messages(self, payload: dict[str, Any]) -> list[BaseMessage]:
@@ -539,7 +538,7 @@ class StepCapsuleLens(StepLens):
             from artemis.services.llm import with_fallback
 
             response = await with_fallback(
-                lambda: self._invoke(self._get_llm(), messages, self._model_name),
+                lambda: self._invoke(self._get_llm(), messages, self._model_name or "default"),
                 lambda: self._invoke(
                     self._get_fallback_llm(),
                     messages,
@@ -548,7 +547,7 @@ class StepCapsuleLens(StepLens):
                 none_should_fallback=False,
             )
         else:
-            response = await self._invoke(self._get_llm(), messages, self._model_name)
+            response = await self._invoke(self._get_llm(), messages, self._model_name or "default")
         content = getattr(response, "content", "")
         if isinstance(content, list):
             content = "".join(
@@ -900,7 +899,7 @@ class HistoryChunkManager:
         self._max_steps = int(getattr(cc, "max_steps", 12) or 12)
         self._min_steps = max(1, min(self._max_steps, int(getattr(cc, "min_steps", 3) or 3)))
         self._target_source_tokens = int(getattr(cc, "target_source_tokens", 2000) or 2000)
-        self._model_name = getattr(cc, "model", None) or "gemini-3.8-flash"
+        self._model_name = getattr(cc, "model", None)
         self._max_chunks = int(getattr(cc, "max_chunks", 8) or 8)
         # None uses max_chunks as the era cap.
         self._max_eras = int(getattr(cc, "max_eras", None) or self._max_chunks)
@@ -959,11 +958,10 @@ class HistoryChunkManager:
         return ChunkCapsuleService(ctx, lens, **kwargs)
 
     def _resolve_capsule_fallback_model(self, ctx: Any) -> str | None:
-        """Fallback model for capsule generation when `chunking.model` is down.
+        """Fallback model for capsule generation when the primary model is down.
 
         Resolved from the LLM config's summarizer role (which inherits the
-        global default fallback unless overridden). Only same-provider (google)
-        fallbacks apply — the capsule lens rides the raw google model path.
+        global default fallback unless overridden).
         """
         try:
             llm_cfg = getattr(ctx, "llm_config", None) if ctx is not None else None
@@ -971,10 +969,15 @@ class HistoryChunkManager:
                 from artemis.config.llm import get_default_llm_config
 
                 llm_cfg = get_default_llm_config()
-            fallback = getattr(getattr(llm_cfg, "summarizer", None), "fallback", None)
+            summarizer_cfg = getattr(llm_cfg, "summarizer", None)
+            fallback = getattr(summarizer_cfg, "fallback", None)
             provider = str(getattr(fallback, "provider", "") or "")
             model = getattr(fallback, "model", None)
-            if model and is_google_provider(provider) and model != self._model_name:
+            primary_provider = str(getattr(summarizer_cfg, "provider", "") or "")
+            primary_model = self._model_name or getattr(summarizer_cfg, "model", None)
+            if model and (
+                model != primary_model or provider.lower() != primary_provider.lower()
+            ):
                 return str(model)
         except Exception as exc:
             logger.debug(f"Capsule fallback model resolution skipped: {exc}", exc_info=True)

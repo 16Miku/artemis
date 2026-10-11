@@ -43,9 +43,11 @@ def _context(model: str = "gemini-3.8-flash", denylist: list[str] | None = None)
     ctx.llm_config = MagicMock()
     ctx.llm_config.explorer = MagicMock()
     ctx.llm_config.explorer.model = model
+    ctx.llm_config.explorer.provider = "google"
     ctx.llm_config.explorer.temperature = 0.1
     ctx.llm_config.explorer.thinking_level = None
     ctx.llm_config.explorer.fallback = None
+    ctx.llm_config.get_agent.return_value = ctx.llm_config.explorer
     ctx.agent_config = MagicMock()
     ctx.agent_config.denylisted_tools = {"explorer": denylist or []}
     ctx.agent_config.explorer = SimpleNamespace(caching=None)
@@ -316,7 +318,7 @@ def test_caching_precedence(monkeypatch):
 
 def test_caching_ignores_mock_config_values():
     """A MagicMock context must fall through to the tier default, not force True."""
-    ctx = MagicMock()
+    ctx = _context()
     explorer = Explorer(ctx)
     with patch.object(settings, "EXPLORER_CACHING", None):
         assert explorer._resolve_caching(get_tier("pro"), None) is False

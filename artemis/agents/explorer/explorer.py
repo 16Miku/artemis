@@ -31,7 +31,6 @@ from typing import Any, Literal
 from google import genai
 from google.genai import types
 
-from artemis.agents.explorer.constants import DEFAULT_EXPLORER_MODEL
 from artemis.agents.explorer.geometry import (
     FALLBACK_SCREEN_SIZE,
     is_valid_norm_point,
@@ -116,9 +115,16 @@ class Explorer(PerceptionToolsMixin, UniversalRunnerMixin, RunSetupMixin, Native
     def _resolve_model_name(self) -> str:
         """Returns the configured Explorer model name without a provider prefix."""
         llm_config = getattr(self.ctx, "llm_config", None)
+        if llm_config is None:
+            from artemis.config.llm import get_default_llm_config
+
+            llm_config = get_default_llm_config()
         llm_cfg = getattr(llm_config, "explorer", None) if llm_config else None
-        model = getattr(llm_cfg, "model", None) if llm_cfg else None
-        model_name = model if isinstance(model, str) and model else DEFAULT_EXPLORER_MODEL
+        if llm_cfg is None and hasattr(llm_config, "get_agent"):
+            llm_cfg = llm_config.get_agent("explorer")
+        model_name = getattr(llm_cfg, "model", None)
+        if not isinstance(model_name, str) or not model_name:
+            raise ValueError("Explorer LLM configuration has no valid model.")
         return strip_provider_prefix(model_name)
 
     def _detect_native_engine(self) -> bool:

@@ -414,12 +414,8 @@ class VideoAnalyzer:
     def _init_engine(self) -> None:
         """Initializes model engine and decides whether to use native Gemini or Universal path."""
         ctx = self.ctx
-        llm_config = getattr(ctx, "llm_config", None)
-        utils_cfg = getattr(llm_config, "utils", None) if llm_config else None
-        llm_cfg = getattr(utils_cfg, "video_analyzer", None) if utils_cfg else None
-        self.model_name = strip_provider_prefix(
-            llm_cfg.model if (llm_cfg and hasattr(llm_cfg, "model")) else "gemini-3.8-flash"
-        )
+        llm_cfg = self._get_video_llm_config()
+        self.model_name = strip_provider_prefix(llm_cfg.model)
 
         has_google_key = bool(
             settings.GOOGLE_API_KEY and settings.GOOGLE_API_KEY.get_secret_value()
@@ -443,6 +439,21 @@ class VideoAnalyzer:
         else:
             self.use_native_gemini = False
         self._resolve_video_processing()
+
+    def _get_video_llm_config(self):
+        """Returns the configured video-analyzer utility model."""
+        llm_config = getattr(self.ctx, "llm_config", None)
+        if llm_config is None:
+            from artemis.config.llm import get_default_llm_config
+
+            llm_config = get_default_llm_config()
+        utils_cfg = getattr(llm_config, "utils", None)
+        llm_cfg = getattr(utils_cfg, "video_analyzer", None) if utils_cfg else None
+        if llm_cfg is None and hasattr(llm_config, "get_utils"):
+            llm_cfg = llm_config.get_utils("video_analyzer")
+        if llm_cfg is None or not getattr(llm_cfg, "model", None):
+            raise ValueError("Video analyzer LLM configuration has no valid model.")
+        return llm_cfg
 
     def _resolve_video_processing(self) -> None:
         """Picks static vs agentic video understanding for the sub-agents.
@@ -833,19 +844,14 @@ class VideoAnalyzer:
             self._init_engine()
 
             # Resolve model name and temperature from config
-            llm_config = getattr(ctx, "llm_config", None)
-            utils_cfg = getattr(llm_config, "utils", None) if llm_config else None
-            llm_cfg = getattr(utils_cfg, "video_analyzer", None) if utils_cfg else None
+            llm_cfg = self._get_video_llm_config()
             temperature = 0.2
             thinking_level = None
-            if llm_cfg:
-                self.model_name = strip_provider_prefix(llm_cfg.model)
-                if getattr(llm_cfg, "temperature", None) is not None:
-                    temperature = llm_cfg.temperature
-                if getattr(llm_cfg, "thinking_level", None) is not None:
-                    thinking_level = llm_cfg.thinking_level
-            else:
-                self.model_name = "gemini-3.8-flash"
+            self.model_name = strip_provider_prefix(llm_cfg.model)
+            if getattr(llm_cfg, "temperature", None) is not None:
+                temperature = llm_cfg.temperature
+            if getattr(llm_cfg, "thinking_level", None) is not None:
+                thinking_level = llm_cfg.thinking_level
 
             # Track files for cleanup
             self.local_files_to_cleanup = set()
