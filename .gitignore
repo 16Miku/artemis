@@ -85,6 +85,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Artemis Runtime & Telemetry
+.dev-data/
 traces/
 scratch/
 .artemis_paused
